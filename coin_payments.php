@@ -16,6 +16,11 @@ class CoinPayments extends NonmerchantGateway
     private $meta;
 
     /**
+     * @var string The merchant ID of Phillips Data Inc.
+     */
+    private $merchant_id = '10f425656e02bac792ea749dba767aba';
+
+    /**
      * Construct a new merchant gateway
      */
     public function __construct()
@@ -170,6 +175,7 @@ class CoinPayments extends NonmerchantGateway
             'city' => $this->ifSet($contact_info['city']),
             'country' => $this->ifSet($contact_info['country']['alpha2']),
             'zip' => $this->ifSet($contact_info['zip']),
+            'author' => $this->merchant_id
         ];
 
         // Set state if US
