@@ -1,5 +1,5 @@
 {
-    "name": "blesta/coinpayments",
+    "name": "blesta/coin-payments",
     "description": "Coin Payments",
     "license": "proprietary",
     "type": "blesta-gateway-nonmerchant",
