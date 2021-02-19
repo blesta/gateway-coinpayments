@@ -156,31 +156,31 @@ class CoinPayments extends NonmerchantGateway
         $fields = [
             'cmd' => '_pay',
             'reset' => '1',
-            'merchant' => $this->ifSet($this->meta['merchant_id']),
+            'merchant' => (isset($this->meta['merchant_id']) ? $this->meta['merchant_id'] : null),
             'currency' => $this->currency,
             'amountf' => $amount,
-            'item_name' => $this->ifSet($options['description']),
+            'item_name' => (isset($options['description']) ? $options['description'] : null),
             'ipn_url' => Configure::get('Blesta.gw_callback_url')
                 . Configure::get('Blesta.company_id')
                 . '/coin_payments/?client_id='
-                . $this->ifSet($contact_info['client_id']),
-            'success_url' => $this->ifSet($options['return_url']),
+                . (isset($contact_info['client_id']) ? $contact_info['client_id'] : null),
+            'success_url' => (isset($options['return_url']) ? $options['return_url'] : null),
             'allow_extra' => 0, // no buyer notes
             'want_shipping' => 0, // no buyer shipping info
-            'first_name' => $this->ifSet($contact_info['first_name']),
-            'last_name' => $this->ifSet($contact_info['last_name']),
-            'email' => $this->ifSet($contact_info['email']),
-            'address1' => $this->ifSet($contact_info['address1']),
-            'address2' => $this->ifSet($contact_info['address2']),
-            'city' => $this->ifSet($contact_info['city']),
-            'country' => $this->ifSet($contact_info['country']['alpha2']),
-            'zip' => $this->ifSet($contact_info['zip']),
+            'first_name' => (isset($contact_info['first_name']) ? $contact_info['first_name'] : null),
+            'last_name' => (isset($contact_info['last_name']) ? $contact_info['last_name'] : null),
+            'email' => (isset($contact_info['email']) ? $contact_info['email'] : null),
+            'address1' => (isset($contact_info['address1']) ? $contact_info['address1'] : null),
+            'address2' => (isset($contact_info['address2']) ? $contact_info['address2'] : null),
+            'city' => (isset($contact_info['city']) ? $contact_info['city'] : null),
+            'country' => (isset($contact_info['country']['alpha2']) ? $contact_info['country']['alpha2'] : null),
+            'zip' => (isset($contact_info['zip']) ? $contact_info['zip'] : null),
             'author' => $this->merchant_id
         ];
 
         // Set state if US
-        if ($this->ifSet($contact_info['country']['alpha2']) == 'US') {
-            $fields['state'] = $this->ifSet($contact_info['state']['code']);
+        if ((isset($contact_info['country']['alpha2']) ? $contact_info['country']['alpha2'] : null) == 'US') {
+            $fields['state'] = (isset($contact_info['state']['code']) ? $contact_info['state']['code'] : null);
         }
 
         // Set all invoices to pay
@@ -191,13 +191,13 @@ class CoinPayments extends NonmerchantGateway
         // Build recurring payment fields
         /*
         $recurring_fields = array();
-        if ($this->ifSet($options['recur']) && $this->ifSet($options['recur']['amount']) > 0) {
+        if ((isset($options['recur']) ? $options['recur'] : null) && (isset($options['recur']['amount']) ? $options['recur']['amount'] : null) > 0) {
             $recurring_fields = $fields;
             unset($recurring_fields['amount']);
 
             $t3 = null;
             // PayPal calls 'term' 'period' and 'period' 'term'...
-            switch ($this->ifSet($options['recur']['period'])) {
+            switch ((isset($options['recur']['period']) ? $options['recur']['period'] : null)) {
                 case "day":
                     $t3 = "D";
                     break;
@@ -219,21 +219,21 @@ class CoinPayments extends NonmerchantGateway
             // to differ from future term iff start_date is set and is set to
             // a future date
             $day_diff = 0;
-            if ($this->ifSet($options['recur']['start_date']) &&
+            if ((isset($options['recur']['start_date']) ? $options['recur']['start_date'] : null) &&
                 ($day_diff = floor((strtotime($options['recur']['start_date']) - time())/(60*60*24))) > 0) {
 
                 $recurring_fields['p1'] = $day_diff;
                 $recurring_fields['t1'] = "D";
             }
             else {
-                $recurring_fields['p1'] = $this->ifSet($options['recur']['term']);
+                $recurring_fields['p1'] = (isset($options['recur']['term']) ? $options['recur']['term'] : null);
                 $recurring_fields['t1'] = $t3;
             }
-            $recurring_fields['a3'] = $this->ifSet($options['recur']['amount']);
-            $recurring_fields['p3'] = $this->ifSet($options['recur']['term']);
+            $recurring_fields['a3'] = (isset($options['recur']['amount']) ? $options['recur']['amount'] : null);
+            $recurring_fields['p3'] = (isset($options['recur']['term']) ? $options['recur']['term'] : null);
             $recurring_fields['t3'] = $t3;
             $recurring_fields['custom'] = null;
-            $recurring_fields['modify'] = $this->ifSet($this->meta['modify']) == "true" ? 1 : 0;
+            $recurring_fields['modify'] = (isset($this->meta['modify']) ? $this->meta['modify'] : null) == "true" ? 1 : 0;
             $recurring_fields['src'] = "1"; // recur payments
 
 
@@ -250,7 +250,7 @@ class CoinPayments extends NonmerchantGateway
         if (!empty($recurring_fields))
             $recurring_btn = $this->buildForm($post_to, $recurring_fields, true);
 
-        switch ($this->ifSet($this->meta['pay_type'])) {
+        switch ((isset($this->meta['pay_type']) ? $this->meta['pay_type'] : null)) {
             case "both":
                 if ($recurring_btn)
                     return array($regular_btn, $recurring_btn);
@@ -290,12 +290,12 @@ class CoinPayments extends NonmerchantGateway
     {
         $error_msg = null;
 
-        if ($this->ifSet($post['ipn_mode']) == 'hmac') {
+        if ((isset($post['ipn_mode']) ? $post['ipn_mode'] : null) == 'hmac') {
             if (isset($_SERVER['HTTP_HMAC']) && !empty($_SERVER['HTTP_HMAC'])) {
                 $request = file_get_contents('php://input');
                 if ($request !== false && !empty($request)) {
-                    if ($this->ifSet($post['merchant']) == trim($this->ifSet($this->meta['merchant_id']))) {
-                        $hmac = hash_hmac('sha512', $request, trim($this->ifSet($this->meta['ipn_secret'])));
+                    if ((isset($post['merchant']) ? $post['merchant'] : null) == trim((isset($this->meta['merchant_id']) ? $this->meta['merchant_id'] : null))) {
+                        $hmac = hash_hmac('sha512', $request, trim((isset($this->meta['ipn_secret']) ? $this->meta['ipn_secret'] : null)));
                         if ($hmac !== $_SERVER['HTTP_HMAC']) {
                             $error_msg = 'HMAC signature does not match';
                         }
@@ -309,11 +309,11 @@ class CoinPayments extends NonmerchantGateway
                 $error_msg = 'No HMAC signature sent.';
             }
         } else {
-            if ($this->ifSet($post['ipn_mode']) == 'httpauth'
+            if ((isset($post['ipn_mode']) ? $post['ipn_mode'] : null) == 'httpauth'
                 && !(isset($_SERVER['PHP_AUTH_USER'])
                     && isset($_SERVER['PHP_AUTH_PW'])
-                    && $_SERVER['PHP_AUTH_USER'] == trim($this->ifSet($this->meta['merchant_id']))
-                    && $_SERVER['PHP_AUTH_PW'] == trim($this->ifSet($this->meta['ipn_secret'])))
+                    && $_SERVER['PHP_AUTH_USER'] == trim((isset($this->meta['merchant_id']) ? $this->meta['merchant_id'] : null))
+                    && $_SERVER['PHP_AUTH_PW'] == trim((isset($this->meta['ipn_secret']) ? $this->meta['ipn_secret'] : null)))
             ) {
                     $error_msg = 'Invalid merchant id/ipn secret';
             } else {
@@ -346,11 +346,11 @@ class CoinPayments extends NonmerchantGateway
     public function validate(array $get, array $post)
     {
         // Log request received
-        $this->log($this->ifSet($_SERVER['REQUEST_URI']), serialize($post), 'output', true);
+        $this->log((isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null), serialize($post), 'output', true);
 
         // Ensure IPN is verified, and validate that the merchant ID is correct
         $error_msg = $this->checkIpnRequestIsValid($post);
-        $pmt_status = intval($this->ifSet($post['status'], '0'));
+        $pmt_status = intval((isset($post['status']) ? $post['status'] : '0'));
 
         $status = 'declined';
         if ($pmt_status >= 100 || $pmt_status == 1 || $pmt_status == 2) {
@@ -371,18 +371,18 @@ class CoinPayments extends NonmerchantGateway
             }
             $report .= 'HTTP Auth User = |' . $_SERVER['PHP_AUTH_USER'] . "|\n";
             $report .= 'HTTP Auth Pass = |' . $_SERVER['PHP_AUTH_PW'] . "|\n";
-            $this->log($this->ifSet($_SERVER['REQUEST_URI']), serialize($report), 'output', true);
+            $this->log((isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null), serialize($report), 'output', true);
         }
 
         return [
-            'client_id' => $this->ifSet($get['client_id']),
-            'amount' => $this->ifSet($post['amount1']),
-            'currency' => $this->ifSet($post['currency1']),
+            'client_id' => (isset($get['client_id']) ? $get['client_id'] : null),
+            'amount' => (isset($post['amount1']) ? $post['amount1'] : null),
+            'currency' => (isset($post['currency1']) ? $post['currency1'] : null),
             'status' => $status,
             'reference_id' => null,
-            'transaction_id' => $this->ifSet($post['txn_id']),
+            'transaction_id' => (isset($post['txn_id']) ? $post['txn_id'] : null),
             'parent_transaction_id' => '',
-            'invoices' => $this->unserializeInvoices($this->ifSet($post['custom']))
+            'invoices' => $this->unserializeInvoices((isset($post['custom']) ? $post['custom'] : null))
         ];
     }
 
