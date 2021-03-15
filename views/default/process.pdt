@@ -3,7 +3,7 @@
     // Disable CSRF for this form
     $this->Form->setCsrfOptions(['set_on_create' => false]);
     $this->Form->create($post_to);
-    if ($this->Html->ifSet($fields)) {
+    if ((isset($fields) ? $fields : null)) {
         foreach ($fields as $key => $value) {
             $this->Form->fieldHidden($key, $value);
         }
