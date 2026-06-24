@@ -1,5 +1,5 @@
 {
-    "version": "2.0.0",
+    "version": "2.0.1",
     "name": "CoinPayments.name",
     "description": "CoinPayments.description",
     "authors": [
@@ -38,5 +38,9 @@
         "USD",
         "ZAR"
     ],
-    "signup_url": "https://www.coinpayments.net/index.php?ref=10f425656e02bac792ea749dba767aba"
+    "signup_url": "https://www.coinpayments.net/index.php?ref=10f425656e02bac792ea749dba767aba",
+    "logo": {
+        "light": "views/default/images/logo.svg",
+        "dark": "views/default/images/logo-dark.svg"
+    }
 }
