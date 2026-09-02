@@ -348,30 +348,32 @@ class CoinPayments extends NonmerchantGateway
         // Log request received
         $this->log((isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null), serialize($post), 'output', true);
 
-        // Ensure IPN is verified, and validate that the merchant ID is correct
+        // Ensure IPN is verified, and validate that the merchant ID is correct, to
+        // prevent payments being recognized that were not sent by the gateway
         $error_msg = $this->checkIpnRequestIsValid($post);
-        $pmt_status = intval((isset($post['status']) ? $post['status'] : '0'));
-
-        $status = 'declined';
-        if ($pmt_status >= 100 || $pmt_status == 1 || $pmt_status == 2) {
-            $status = 'approved';
-        } else {
-            if ($pmt_status < 0) {
-                $status = 'error';
-            } else {
-                $status = 'pending';
-            }
-        }
 
         if ($error_msg) {
-            $report = 'IPN Error: ' . $error_msg . "\n\n";
-            $report .= "POST Variables\n\n";
-            foreach ($post as $k => $v) {
-                $report .= '|' . $k . '| = |' . $v . "|\n";
-            }
-            $report .= 'HTTP Auth User = |' . $_SERVER['PHP_AUTH_USER'] . "|\n";
-            $report .= 'HTTP Auth Pass = |' . $_SERVER['PHP_AUTH_PW'] . "|\n";
-            $this->log((isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null), serialize($report), 'output', true);
+            $this->Input->setErrors($this->getCommonError('invalid'));
+
+            // Log the reason the IPN could not be verified
+            $this->log(
+                ($_SERVER['REQUEST_URI'] ?? null),
+                'IPN Error: ' . $error_msg . "\n\n" . json_encode($post, JSON_PRETTY_PRINT),
+                'output',
+                false
+            );
+
+            return;
+        }
+
+        // Only a completed payment, or one queued for payout, is settled
+        $pmt_status = intval((isset($post['status']) ? $post['status'] : '0'));
+
+        $status = 'pending';
+        if ($pmt_status >= 100 || $pmt_status == 2) {
+            $status = 'approved';
+        } elseif ($pmt_status < 0) {
+            $status = 'error';
         }
 
         return [
