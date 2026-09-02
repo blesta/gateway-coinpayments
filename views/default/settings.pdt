@@ -1,13 +1,94 @@
-
 <div class="mb-3">
+    <label class="form-label"><?php $this->_('CoinPayments.api_version'); ?></label>
+    <?php
+    foreach (($api_versions ?? []) as $version => $version_name) {
+        ?>
+        <div class="form-check">
+            <?php
+            $this->Form->fieldRadio(
+                'api_version',
+                $version,
+                (($api_version ?? 'legacy') == $version),
+                ['id' => 'coin_payments_api_version_' . $version, 'class' => 'form-check-input']
+            );
+            $this->Form->label(
+                $version_name,
+                'coin_payments_api_version_' . $version,
+                ['class' => 'form-check-label']
+            );
+            ?>
+        </div>
+        <?php
+    }
+    ?>
+</div>
+<div class="mb-3 coin-payments-legacy-field">
     <?php
     $this->Form->label($this->_('CoinPayments.merchant_id', true), 'merchant_id', ['class' => 'form-label']);
     $this->Form->fieldText('merchant_id', (isset($meta['merchant_id']) ? $meta['merchant_id'] : null), ['id' => 'merchant_id', 'class' => 'form-control']);
     ?>
 </div>
-<div class="mb-3">
+<div class="mb-3 coin-payments-legacy-field">
     <?php
     $this->Form->label($this->_('CoinPayments.ipn_secret', true), 'ipn_secret', ['class' => 'form-label']);
     $this->Form->fieldText('ipn_secret', (isset($meta['ipn_secret']) ? $meta['ipn_secret'] : null), ['id' => 'ipn_secret', 'class' => 'form-control']);
     ?>
 </div>
+<div class="mb-3 coin-payments-new-field">
+    <?php
+    $this->Form->label($this->_('CoinPayments.client_id', true), 'client_id', ['class' => 'form-label']);
+    $this->Form->fieldText('client_id', (isset($meta['client_id']) ? $meta['client_id'] : null), ['id' => 'client_id', 'class' => 'form-control']);
+    ?>
+</div>
+<div class="mb-3 coin-payments-new-field">
+    <?php
+    $this->Form->label($this->_('CoinPayments.client_secret', true), 'client_secret', ['class' => 'form-label']);
+    $this->Form->fieldText('client_secret', (isset($meta['client_secret']) ? $meta['client_secret'] : null), ['id' => 'client_secret', 'class' => 'form-control']);
+    ?>
+</div>
+<div class="mb-3 coin-payments-new-field">
+    <?php
+    $this->Form->label($this->_('CoinPayments.api_url', true), 'api_url', ['class' => 'form-label']);
+    $this->Form->fieldSelect('api_url', ($api_urls ?? []), ($api_url ?? null), ['id' => 'api_url', 'class' => 'form-select']);
+    ?>
+    <p class="form-text"><?php $this->_('CoinPayments.api_url_note'); ?></p>
+</div>
+<div class="mb-3 coin-payments-new-field">
+    <label class="form-label"><?php $this->_('CoinPayments.webhook'); ?></label>
+    <p class="form-text"><?php $this->_('CoinPayments.webhook_note'); ?></p>
+    <code><?php echo $this->Html->safe(Configure::get('Blesta.gw_callback_url') . Configure::get('Blesta.company_id') . '/coin_payments/'); ?></code>
+</div>
+<script type="text/javascript">
+    document.addEventListener('DOMContentLoaded', function() {
+        var api_versions = document.querySelectorAll('input[name="api_version"]');
+
+        function toggleFields() {
+            var selected = document.querySelector('input[name="api_version"]:checked');
+            var version = (selected ? selected.value : 'legacy');
+            var groups = {
+                'legacy': document.querySelectorAll('.coin-payments-legacy-field'),
+                'new': document.querySelectorAll('.coin-payments-new-field')
+            };
+
+            Object.keys(groups).forEach(function(key) {
+                var active = (key === version);
+
+                groups[key].forEach(function(el) {
+                    el.style.display = (active ? '' : 'none');
+
+                    // Disabled fields are not submitted, so the settings of the version
+                    // that is not in use are never validated or saved
+                    el.querySelectorAll('input, select').forEach(function(input) {
+                        input.disabled = !active;
+                    });
+                });
+            });
+        }
+
+        api_versions.forEach(function(el) {
+            el.addEventListener('change', toggleFields);
+        });
+
+        toggleFields();
+    });
+</script>
