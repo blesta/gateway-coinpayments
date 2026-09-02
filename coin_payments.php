@@ -21,6 +21,11 @@ class CoinPayments extends NonmerchantGateway
     private $merchant_id = '10f425656e02bac792ea749dba767aba';
 
     /**
+     * @var CoinPaymentsApi The API for the new CoinPayments platform
+     */
+    private $api;
+
+    /**
      * Construct a new merchant gateway
      */
     public function __construct()
@@ -32,6 +37,109 @@ class CoinPayments extends NonmerchantGateway
 
         // Load the language required by this gateway
         Language::loadLang('coin_payments', null, dirname(__FILE__) . DS . 'language' . DS);
+    }
+
+    /**
+     * Performs migration of data from $current_version (the current installed version)
+     * to the given file set version
+     *
+     * @param string $current_version The current installed version of this gateway
+     * @param int $gateway_id The ID of the gateway instance being upgraded
+     */
+    public function upgrade($current_version, $gateway_id = null)
+    {
+        if (version_compare($current_version, '3.0.0', '<')) {
+            Loader::loadModels($this, ['GatewayManager']);
+
+            $gateways = $this->GatewayManager->getByClass('CoinPayments');
+
+            foreach ($gateways as $gateway) {
+                // Existing installations have no API version set and must keep using
+                // the legacy API, the settings for the new API are not interchangeable
+                $meta = ['api_version' => 'legacy'];
+                foreach ($gateway->meta as $meta_item) {
+                    $meta[$meta_item->key] = $meta_item->value;
+                }
+
+                $this->GatewayManager->edit($gateway->id, ['meta' => $meta]);
+            }
+        }
+    }
+
+    /**
+     * Gets a list of the supported API versions
+     *
+     * @return array A list of API versions and their language
+     */
+    private function getApiVersions()
+    {
+        return [
+            'legacy' => Language::_('CoinPayments.getapiversions.legacy', true),
+            'new' => Language::_('CoinPayments.getapiversions.new', true)
+        ];
+    }
+
+    /**
+     * Gets a list of the supported API URLs
+     *
+     * @return array A list of API URLs and their language
+     */
+    private function getApiUrls()
+    {
+        return [
+            'https://a-api.coinpayments.net' => Language::_('CoinPayments.getapiurls.a', true),
+            'https://b-api.coinpayments.net' => Language::_('CoinPayments.getapiurls.b', true),
+            'https://c-api.coinpayments.net' => Language::_('CoinPayments.getapiurls.c', true),
+            'https://api.coinpayments.net' => Language::_('CoinPayments.getapiurls.sandbox', true)
+        ];
+    }
+
+    /**
+     * Gets the configured API URL
+     *
+     * @return string The API URL
+     */
+    private function getApiUrl()
+    {
+        $api_urls = $this->getApiUrls();
+        $api_url = trim($this->meta['api_url'] ?? '');
+
+        // The account only exists on the instance it was registered with, so the URL
+        // must be one of the supported ones; the first of them is the default
+        return (isset($api_urls[$api_url]) ? $api_url : array_key_first($api_urls));
+    }
+
+    /**
+     * Gets the API for the new CoinPayments platform
+     *
+     * @return CoinPaymentsApi The API
+     */
+    private function getApi()
+    {
+        if (!isset($this->api)) {
+            Loader::load(dirname(__FILE__) . DS . 'lib' . DS . 'coin_payments_api.php');
+
+            $this->api = new CoinPaymentsApi(
+                trim($this->meta['client_id'] ?? ''),
+                trim($this->meta['client_secret'] ?? ''),
+                $this->getApiUrl()
+            );
+        }
+
+        return $this->api;
+    }
+
+    /**
+     * Builds the URL CoinPayments sends payment notifications to
+     *
+     * @param int $client_id The ID of the client making the payment
+     * @return string The notification URL
+     */
+    private function getCallbackUrl($client_id)
+    {
+        return Configure::get('Blesta.gw_callback_url')
+            . Configure::get('Blesta.company_id')
+            . '/coin_payments/?client_id=' . $client_id;
     }
 
     /**
@@ -57,6 +165,12 @@ class CoinPayments extends NonmerchantGateway
         // Load the helpers required for this view
         Loader::loadHelpers($this, ['Form', 'Html']);
 
+        // A new installation defaults to the new API, an existing one has no API version
+        // set and must keep using the legacy API
+        $this->view->set('api_versions', $this->getApiVersions());
+        $this->view->set('api_version', (empty($meta) ? 'new' : ($meta['api_version'] ?? 'legacy')));
+        $this->view->set('api_urls', $this->getApiUrls());
+        $this->view->set('api_url', $this->getApiUrl());
         $this->view->set('meta', $meta);
 
         return $this->view->fetch();
@@ -71,7 +185,41 @@ class CoinPayments extends NonmerchantGateway
     public function editSettings(array $meta)
     {
         // Verify meta data is valid
-        $rules = [];
+        $rules = [
+            'api_version' => [
+                'valid' => [
+                    'if_set' => true,
+                    'rule' => ['array_key_exists', $this->getApiVersions()],
+                    'message' => Language::_('CoinPayments.!error.api_version.valid', true)
+                ]
+            ]
+        ];
+
+        // The legacy fields are left unvalidated so that existing installations can
+        // continue to save their settings exactly as they did before
+        if (($meta['api_version'] ?? 'legacy') == 'new') {
+            $rules['client_id'] = [
+                'empty' => [
+                    'rule' => 'isEmpty',
+                    'negate' => true,
+                    'message' => Language::_('CoinPayments.!error.client_id.empty', true)
+                ]
+            ];
+            $rules['client_secret'] = [
+                'empty' => [
+                    'rule' => 'isEmpty',
+                    'negate' => true,
+                    'message' => Language::_('CoinPayments.!error.client_secret.empty', true)
+                ]
+            ];
+            $rules['api_url'] = [
+                'valid' => [
+                    'if_set' => true,
+                    'rule' => ['array_key_exists', $this->getApiUrls()],
+                    'message' => Language::_('CoinPayments.!error.api_url.valid', true)
+                ]
+            ];
+        }
 
         $this->Input->setRules($rules);
 
@@ -88,7 +236,7 @@ class CoinPayments extends NonmerchantGateway
      */
     public function encryptableFields()
     {
-        return ['account_id', 'merchant_id', 'ipn_secret'];
+        return ['account_id', 'merchant_id', 'ipn_secret', 'client_id', 'client_secret'];
     }
 
     /**
@@ -144,6 +292,33 @@ class CoinPayments extends NonmerchantGateway
      */
     public function buildProcess(array $contact_info, $amount, array $invoice_amounts = null, array $options = null)
     {
+        if (($this->meta['api_version'] ?? 'legacy') == 'new') {
+            return $this->buildCheckout($contact_info, $amount, $invoice_amounts, $options);
+        }
+
+        return $this->buildLegacyProcess($contact_info, $amount, $invoice_amounts, $options);
+    }
+
+    /**
+     * Returns the HTML markup for the legacy payment button
+     *
+     * @param array $contact_info An array of contact info
+     * @param float $amount The amount to charge this contact
+     * @param array $invoice_amounts An array of invoices, each containing:
+     *  - id The ID of the invoice being processed
+     *  - amount The amount being processed for this invoice (which is included in $amount)
+     * @param array $options An array of options including:
+     *  - description The Description of the charge
+     *  - return_url The URL to redirect users to after a successful payment
+     * @return mixed A string of HTML markup required to render an authorization and capture payment form, or an
+     *  array of HTML markup
+     */
+    private function buildLegacyProcess(
+        array $contact_info,
+        $amount,
+        array $invoice_amounts = null,
+        array $options = null
+    ) {
         // Force 8-decimal places only
         $amount = round($amount, 8);
         if (isset($options['recur']['amount'])) {
@@ -160,10 +335,9 @@ class CoinPayments extends NonmerchantGateway
             'currency' => $this->currency,
             'amountf' => $amount,
             'item_name' => (isset($options['description']) ? $options['description'] : null),
-            'ipn_url' => Configure::get('Blesta.gw_callback_url')
-                . Configure::get('Blesta.company_id')
-                . '/coin_payments/?client_id='
-                . (isset($contact_info['client_id']) ? $contact_info['client_id'] : null),
+            'ipn_url' => $this->getCallbackUrl(
+                (isset($contact_info['client_id']) ? $contact_info['client_id'] : null)
+            ),
             'success_url' => (isset($options['return_url']) ? $options['return_url'] : null),
             'allow_extra' => 0, // no buyer notes
             'want_shipping' => 0, // no buyer shipping info
@@ -265,6 +439,188 @@ class CoinPayments extends NonmerchantGateway
     }
 
     /**
+     * Creates an invoice through the CoinPayments API and returns the markup to send
+     * the client to the hosted checkout for it
+     *
+     * @param array $contact_info An array of contact info
+     * @param float $amount The amount to charge this contact
+     * @param array $invoice_amounts An array of invoices, each containing:
+     *  - id The ID of the invoice being processed
+     *  - amount The amount being processed for this invoice (which is included in $amount)
+     * @param array $options An array of options including:
+     *  - description The Description of the charge
+     *  - return_url The URL to redirect users to after a successful payment
+     * @return string A string of HTML markup linking to the hosted checkout
+     */
+    private function buildCheckout(
+        array $contact_info,
+        $amount,
+        array $invoice_amounts = null,
+        array $options = null
+    ) {
+        $api = $this->getApi();
+
+        // Invoices are priced by currency ID rather than by ISO 4217 code
+        $currency = $api->getCurrency($this->currency);
+
+        if (empty($currency->id)) {
+            // The currency is either not supported or could not be fetched, log the
+            // lookup so the two can be told apart
+            $request = $api->lastRequest();
+            $this->log($request['url'], 'Unable to resolve currency ' . $this->currency, 'output', false);
+
+            $this->Input->setErrors([
+                'currency' => [
+                    'unsupported' => Language::_('CoinPayments.!error.currency.unsupported', true, $this->currency)
+                ]
+            ]);
+
+            return null;
+        }
+
+        $client_id = $contact_info['client_id'] ?? null;
+        $description = $options['description'] ?? Language::_('CoinPayments.buildprocess.description', true);
+        $total = number_format($amount, (int) ($currency->decimalPlaces ?? 2), '.', '');
+
+        $params = [
+            'currency' => (string) $currency->id,
+            'clientId' => $this->meta['client_id'] ?? null,
+            'invoiceId' => 'BLESTA-' . $client_id . '-' . time(),
+            'items' => [
+                [
+                    'name' => $description,
+                    'quantity' => ['value' => 1, 'type' => 2],
+                    'amount' => $total
+                ]
+            ],
+            'amount' => [
+                'breakdown' => ['subtotal' => $total],
+                'total' => $total
+            ],
+            'buyer' => $this->getBuyer($contact_info),
+            // Custom data is returned untouched with every notification, the currency is
+            // included because it is not available when a notification is validated
+            'customData' => [
+                'client_id' => (string) $client_id,
+                'invoices' => $this->serializeInvoices($invoice_amounts ?? []),
+                'currency' => $this->currency
+            ],
+            'notesToRecipient' => $description,
+            'successUrl' => $options['return_url'] ?? null,
+            'cancelUrl' => $options['return_url'] ?? null,
+            'webhooks' => [
+                [
+                    'notificationsUrl' => $this->getCallbackUrl($client_id),
+                    'notifications' => [
+                        'invoicePending',
+                        'invoicePaid',
+                        'invoiceCompleted',
+                        'invoiceCancelled',
+                        'invoiceTimedOut'
+                    ]
+                ]
+            ]
+        ];
+
+        $response = $api->createInvoice($params);
+        $request = $api->lastRequest();
+        $errors = $response->errors();
+
+        $this->log($request['url'], $request['params'], 'input', true);
+        $this->log($request['url'], $response->raw(), 'output', empty($errors));
+
+        if (!empty($errors)) {
+            $this->Input->setErrors($errors);
+
+            return null;
+        }
+
+        $invoice = $response->response()->invoices[0] ?? null;
+        $checkout_url = $invoice->checkoutLink ?? ($invoice->link ?? null);
+
+        if (empty($checkout_url)) {
+            $this->Input->setErrors($this->getCommonError('general'));
+
+            return null;
+        }
+
+        return $this->buildCheckoutForm($checkout_url);
+    }
+
+    /**
+     * Formats the given contact for the CoinPayments API, omitting any value not set
+     *
+     * @param array $contact_info An array of contact info
+     * @return array The buyer to send to the API
+     */
+    private function getBuyer(array $contact_info)
+    {
+        $address = array_filter([
+            'address1' => $contact_info['address1'] ?? null,
+            'address2' => $contact_info['address2'] ?? null,
+            'provinceOrState' => $contact_info['state']['code'] ?? null,
+            'city' => $contact_info['city'] ?? null,
+            'countryCode' => $contact_info['country']['alpha2'] ?? null,
+            'postalCode' => $contact_info['zip'] ?? null
+        ], [$this, 'isPresent']);
+
+        $buyer = [
+            'name' => array_filter([
+                'firstName' => $contact_info['first_name'] ?? null,
+                'lastName' => $contact_info['last_name'] ?? null
+            ], [$this, 'isPresent'])
+        ];
+
+        if (!empty($address)) {
+            $buyer['address'] = $address;
+        }
+
+        // The email address is not given with the contact info, fetch it from the contact
+        if (!empty($contact_info['id'])) {
+            Loader::loadModels($this, ['Contacts']);
+
+            if (($contact = $this->Contacts->get($contact_info['id'])) && !empty($contact->email)) {
+                $buyer['emailAddress'] = $contact->email;
+            }
+        }
+
+        return $buyer;
+    }
+
+    /**
+     * Determines whether the given value should be sent to the API
+     *
+     * @param mixed $value The value to check
+     * @return bool True if the value is set, false otherwise
+     */
+    private function isPresent($value)
+    {
+        return $value !== null && $value !== '';
+    }
+
+    /**
+     * Builds the markup linking to the hosted checkout
+     *
+     * @param string $post_to The URL of the hosted checkout
+     * @return string The HTML markup
+     */
+    private function buildCheckoutForm($post_to)
+    {
+        $this->view = $this->makeView(
+            'process_checkout',
+            'default',
+            str_replace(ROOTWEBDIR, '', dirname(__FILE__) . DS)
+        );
+
+        // Load the helpers required for this view
+        Loader::loadHelpers($this, ['Form', 'Html']);
+
+        $this->view->set('post_to', $post_to);
+
+        return $this->view->fetch();
+    }
+
+    /**
      * Builds the HTML form
      *
      * @param string $post_to The URL to post to
@@ -308,17 +664,15 @@ class CoinPayments extends NonmerchantGateway
             } else {
                 $error_msg = 'No HMAC signature sent.';
             }
-        } else {
-            if ((isset($post['ipn_mode']) ? $post['ipn_mode'] : null) == 'httpauth'
-                && !(isset($_SERVER['PHP_AUTH_USER'])
-                    && isset($_SERVER['PHP_AUTH_PW'])
-                    && $_SERVER['PHP_AUTH_USER'] == trim($this->meta['merchant_id'] ?? '')
-                    && $_SERVER['PHP_AUTH_PW'] == trim($this->meta['ipn_secret'] ?? ''))
+        } elseif ((isset($post['ipn_mode']) ? $post['ipn_mode'] : null) == 'httpauth') {
+            if (!isset($_SERVER['PHP_AUTH_USER'], $_SERVER['PHP_AUTH_PW'])
+                || !hash_equals(trim($this->meta['merchant_id'] ?? ''), $_SERVER['PHP_AUTH_USER'])
+                || !hash_equals(trim($this->meta['ipn_secret'] ?? ''), $_SERVER['PHP_AUTH_PW'])
             ) {
-                    $error_msg = 'Invalid merchant id/ipn secret';
-            } else {
-                $error_msg = 'Unknown IPN mode!';
+                $error_msg = 'Invalid merchant id/ipn secret';
             }
+        } else {
+            $error_msg = 'Unknown IPN mode!';
         }
 
         return $error_msg;
@@ -345,33 +699,146 @@ class CoinPayments extends NonmerchantGateway
      */
     public function validate(array $get, array $post)
     {
-        // Log request received
-        $this->log((isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null), serialize($post), 'output', true);
-
-        // Ensure IPN is verified, and validate that the merchant ID is correct
-        $error_msg = $this->checkIpnRequestIsValid($post);
-        $pmt_status = intval((isset($post['status']) ? $post['status'] : '0'));
-
-        $status = 'declined';
-        if ($pmt_status >= 100 || $pmt_status == 1 || $pmt_status == 2) {
-            $status = 'approved';
-        } else {
-            if ($pmt_status < 0) {
-                $status = 'error';
-            } else {
-                $status = 'pending';
-            }
+        if (($this->meta['api_version'] ?? 'legacy') == 'new') {
+            return $this->validateWebhook($get, $post);
         }
 
+        return $this->validateIpn($get, $post);
+    }
+
+    /**
+     * Validates an incoming webhook from the CoinPayments API
+     *
+     * @param array $get The GET data for this request
+     * @param array $post The POST data for this request
+     * @return array An array of transaction data, sets any errors using Input if the data fails to validate
+     */
+    private function validateWebhook(array $get, array $post)
+    {
+        $payload = file_get_contents('php://input');
+
+        // The signature covers the URL the webhook was registered with, rebuild it rather
+        // than reading it back from the request, which a proxy may have rewritten
+        $url = $this->getCallbackUrl($get['client_id'] ?? null);
+
+        // Log request received
+        $this->log($url, $payload, 'output', true);
+
+        if (($error_msg = $this->checkWebhookIsValid($url, $payload))) {
+            $this->Input->setErrors($this->getCommonError('invalid'));
+
+            // Log the reason the webhook could not be verified
+            $this->log($url, 'Webhook Error: ' . $error_msg, 'output', false);
+
+            return;
+        }
+
+        $webhook = json_decode($payload);
+        $invoice = $webhook->invoice ?? null;
+        $custom_data = $invoice->customData ?? null;
+
+        return [
+            'client_id' => $get['client_id'] ?? ($custom_data->client_id ?? null),
+            'amount' => $invoice->amount->total ?? null,
+            'currency' => $custom_data->currency ?? null,
+            'status' => $this->getWebhookStatus($webhook->type ?? null),
+            'reference_id' => null,
+            'transaction_id' => $invoice->id ?? null,
+            'parent_transaction_id' => '',
+            'invoices' => $this->unserializeInvoices($custom_data->invoices ?? null)
+        ];
+    }
+
+    /**
+     * Verifies that the given webhook was sent by CoinPayments
+     *
+     * @param string $url The URL the webhook was registered with
+     * @param string $payload The raw body of the webhook
+     * @return string|null An error message, or null if the webhook is valid
+     */
+    private function checkWebhookIsValid($url, $payload)
+    {
+        $signature = $_SERVER['HTTP_X_COINPAYMENTS_SIGNATURE'] ?? null;
+        $timestamp = $_SERVER['HTTP_X_COINPAYMENTS_TIMESTAMP'] ?? null;
+        $client_id = $_SERVER['HTTP_X_COINPAYMENTS_CLIENT'] ?? null;
+
+        if (empty($signature) || empty($timestamp) || empty($client_id)) {
+            return 'No signature headers sent.';
+        }
+
+        if (!hash_equals(trim($this->meta['client_id'] ?? ''), $client_id)) {
+            return 'No or incorrect Client ID passed';
+        }
+
+        if ($payload === false || $payload === '') {
+            return 'Error reading POST data';
+        }
+
+        if (!hash_equals($this->getApi()->signature('POST', $url, $payload, $timestamp), $signature)) {
+            return 'Signature does not match for ' . $url;
+        }
+
+        return null;
+    }
+
+    /**
+     * Gets the transaction status for the given webhook type
+     *
+     * @param string $type The type of the webhook
+     * @return string The status of the transaction
+     */
+    private function getWebhookStatus($type)
+    {
+        switch ($type) {
+            case 'invoicePaid':
+            case 'invoiceCompleted':
+                return 'approved';
+            case 'invoiceCancelled':
+            case 'invoiceTimedOut':
+                return 'declined';
+            default:
+                return 'pending';
+        }
+    }
+
+    /**
+     * Validates an incoming IPN from the legacy CoinPayments platform
+     *
+     * @param array $get The GET data for this request
+     * @param array $post The POST data for this request
+     * @return array An array of transaction data, sets any errors using Input if the data fails to validate
+     */
+    private function validateIpn(array $get, array $post)
+    {
+        // Log request received
+        $this->log(($_SERVER['REQUEST_URI'] ?? null), serialize($post), 'output', true);
+
+        // Ensure IPN is verified, and validate that the merchant ID is correct, to
+        // prevent payments being recognized that were not sent by the gateway
+        $error_msg = $this->checkIpnRequestIsValid($post);
+
         if ($error_msg) {
-            $report = 'IPN Error: ' . $error_msg . "\n\n";
-            $report .= "POST Variables\n\n";
-            foreach ($post as $k => $v) {
-                $report .= '|' . $k . '| = |' . $v . "|\n";
-            }
-            $report .= 'HTTP Auth User = |' . $_SERVER['PHP_AUTH_USER'] . "|\n";
-            $report .= 'HTTP Auth Pass = |' . $_SERVER['PHP_AUTH_PW'] . "|\n";
-            $this->log((isset($_SERVER['REQUEST_URI']) ? $_SERVER['REQUEST_URI'] : null), serialize($report), 'output', true);
+            $this->Input->setErrors($this->getCommonError('invalid'));
+
+            // Log the reason the IPN could not be verified
+            $this->log(
+                ($_SERVER['REQUEST_URI'] ?? null),
+                'IPN Error: ' . $error_msg . "\n\n" . json_encode($post, JSON_PRETTY_PRINT),
+                'output',
+                false
+            );
+
+            return;
+        }
+
+        // Only a completed payment, or one queued for payout, is settled
+        $pmt_status = intval(($post['status'] ?? '0'));
+
+        $status = 'pending';
+        if ($pmt_status >= 100 || $pmt_status == 2) {
+            $status = 'approved';
+        } elseif ($pmt_status < 0) {
+            $status = 'error';
         }
 
         return [
